@@ -1,7 +1,8 @@
 import pygame
 import sys
 import json
-from tkinter import Tk, filedialog, simpledialog
+import os
+from tkinter import Tk, filedialog, simpledialog, Toplevel, StringVar, OptionMenu, Button, Label
 
 # initialize tkinter for file dialogs (no window)
 root = Tk()
@@ -51,11 +52,105 @@ right_down = False
 
 # --- Copy/paste selection state (new) ---
 copy_selecting = False     # True while right-button dragging selection
-copy_start = None          # (gx,gy)
-copy_end = None            # (gx,gy)
-copy_buffer = None         # 2D list of tile IDs (copied)
+# Project / multi-stage state
+project = None
+project_path = None
+stage_names = []
+current_stage = None
+
+# Copy/paste buffers and preview state
+copy_buffer = None
 paste_preview_active = False
-paste_preview_pos = None   # (gx,gy) top-left position where preview would paste
+paste_preview_pos = None
+copy_start = None
+copy_end = None
+
+def select_stage_dialog():
+    """Blocking stage selection using simpledialog.askstring (reliable).
+    Updates globals: current_stage, map_data, map_width, map_height."""
+    global project, current_stage, map_data, map_width, map_height, stage_names
+    print('select_stage_dialog called; project loaded=', bool(project))
+    if project is None:
+        print('No project loaded')
+        return
+    # ensure stage_names populated
+    if not stage_names:
+        stage_names[:] = list(project.get('maps', {}).keys())
+    prompt = 'Available stages:\n' + '\n'.join(stage_names) + '\n\nEnter stage name:'
+    name = simpledialog.askstring('Select Stage', prompt)
+    if not name:
+        return
+    if name not in project.get('maps', {}):
+        print('Stage not found:', name)
+        return
+    current_stage = name
+    m = project['maps'][current_stage]
+    map_data = [list(row) for row in m]
+    map_height = len(map_data)
+    map_width = len(map_data[0]) if map_height else 0
+    print('Switched to stage', current_stage)
+
+def rename_current_stage(new_name):
+    global project, current_stage, stage_names
+    if project is None:
+        print('No project loaded')
+        return False
+    if not new_name or new_name == current_stage:
+        return False
+    if new_name in project['maps']:
+        print('Stage name already exists:', new_name)
+        return False
+    # rename in maps
+    project['maps'][new_name] = project['maps'].pop(current_stage)
+    # rename check_points and sprites if present
+    for key in ('check_points','sprites'):
+        if key in project and isinstance(project[key], dict):
+            if current_stage in project[key]:
+                project[key][new_name] = project[key].pop(current_stage)
+    # update initial_map if needed
+    if project.get('initial_map') == current_stage:
+        project['initial_map'] = new_name
+    # update current_stage and stage_names
+    idx = stage_names.index(current_stage) if current_stage in stage_names else None
+    current_stage = new_name
+    if idx is not None:
+        stage_names[idx] = new_name
+    else:
+        stage_names = list(project['maps'].keys())
+    print('Renamed stage to', new_name)
+    return True
+
+def prompt_rename_stage():
+    if project is None:
+        print('No project loaded')
+        return
+    new = simpledialog.askstring('Rename Stage', f'New name for stage "{current_stage}":')
+    if new:
+        rename_current_stage(new)
+
+def resize_current_stage(new_w, new_h):
+    global map_data, map_width, map_height
+    if map_data is None:
+        return
+    old_h = len(map_data)
+    old_w = len(map_data[0]) if old_h else 0
+    new_data = [[-1 for _ in range(new_w)] for _ in range(new_h)]
+    for y in range(min(old_h, new_h)):
+        for x in range(min(old_w, new_w)):
+            new_data[y][x] = map_data[y][x]
+    map_data = new_data
+    map_width = new_w
+    map_height = new_h
+    print(f'Resized stage to {new_w}x{new_h} (data preserved in top-left)')
+
+def prompt_resize_stage():
+    if project is None:
+        print('No project loaded')
+        return
+    w = simpledialog.askinteger('Resize Stage', 'New width:', initialvalue=map_width, minvalue=1)
+    h = simpledialog.askinteger('Resize Stage', 'New height:', initialvalue=map_height, minvalue=1)
+    if w and h:
+        resize_current_stage(w, h)
 
 # --- File dialogs ---
 def open_file_dialog_png():
@@ -66,6 +161,67 @@ def open_file_dialog_json():
 
 def save_file_dialog_json():
     return filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('JSON','*.json'),('All files','*.*')])
+
+
+def load_project_json(path=None):
+    """Load a multi-stage project JSON. Sets `project`, `project_path`, `stage_names`,
+    `current_stage` and loads `map_data` for the selected stage."""
+    global project, project_path, stage_names, current_stage, map_data, map_width, map_height
+    if path is None:
+        path = open_file_dialog_json()
+    if not path:
+        return
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            obj = json.load(f)
+    except Exception as e:
+        print('Failed to load project JSON:', e)
+        return
+    project = obj
+    project_path = path
+    maps = project.get('maps', {})
+    stage_names = list(maps.keys())
+    # prefer initial_map if present
+    initial = project.get('initial_map')
+    if initial in maps:
+        current_stage = initial
+    else:
+        current_stage = stage_names[0] if stage_names else None
+    if current_stage:
+        m = maps[current_stage]
+        map_data = [list(row) for row in m]
+        map_height = len(map_data)
+        map_width = len(map_data[0]) if map_height else 0
+    print('Loaded project', path, 'stages:', len(stage_names))
+
+
+def save_project_json(path=None):
+    """Save current `project` (ensuring current stage map is written)."""
+    global project, project_path, current_stage, map_data
+    if project is None:
+        project = {}
+    project.setdefault('maps', {})
+    if current_stage:
+        # store a copy of map_data
+        project['maps'][current_stage] = [list(row) for row in map_data]
+    if path is None:
+        path = save_file_dialog_json()
+    if not path:
+        return
+    try:
+        # create backup if file exists
+        if os.path.exists(path):
+            bak = path + '.bak'
+            try:
+                os.replace(path, bak)
+            except Exception:
+                pass
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(project, f, indent=2, ensure_ascii=False)
+        project_path = path
+        print('Saved project to', path)
+    except Exception as e:
+        print('Failed to save project:', e)
 
 # --- Tile / map helpers ---
 def load_tileset(path=None):
@@ -292,6 +448,11 @@ def draw_stage(surface):
     # compute metrics
     stage_rect, view_w, view_h, stage_w_px, stage_h_px = compute_stage_metrics(surface.get_width(), surface.get_height())
 
+    # draw current stage name above the stage area
+    label = f'Stage: {current_stage if current_stage else "(none)"}'
+    title_s = font.render(label, True, (220,220,220))
+    surface.blit(title_s, (stage_rect.x, stage_rect.y - 22))
+
     # clamp scroll to valid range
     min_x = min(0.0, view_w - stage_w_px)
     min_y = min(0.0, view_h - stage_h_px)
@@ -387,9 +548,10 @@ def draw_stage(surface):
 
 def draw_help(surface):
     lines = [
-        '[L] Load tileset  [N] New map  [S] Save 2D list  [D] Save dict  [O] Open map',
+        '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
+        '[M] Select stage  [R] Rename stage  [E] Resize stage',
         'Left: paint  Right: select/copy  Shift+Left: fill unpainted  Esc: cancel copy/preview',
-        'MouseWheel: stage zoom (stage)/scroll (palette)'
+        '[C] Copy selection  LeftClick while preview: paste  MouseWheel: smooth zoom (stage) / scroll (palette)'
     ]
     x = STAGE_OFFSET_X
     y = surface.get_height() - 24*len(lines) - 10
@@ -420,6 +582,12 @@ while running:
 
         elif event.type == pygame.VIDEORESIZE:
             screen = pygame.display.set_mode((event.w, event.h), pygame.RESIZABLE)
+            # immediately recompute stage metrics and clamp scroll so editor follows window resize
+            stage_rect_tmp, view_w_tmp, view_h_tmp, stage_w_px_tmp, stage_h_px_tmp = compute_stage_metrics(screen.get_width(), screen.get_height())
+            min_xt = min(0.0, view_w_tmp - stage_w_px_tmp)
+            min_yt = min(0.0, view_h_tmp - stage_h_px_tmp)
+            stage_scroll_x = clamp(stage_scroll_x, min_xt, 0.0)
+            stage_scroll_y = clamp(stage_scroll_y, min_yt, 0.0)
 
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
@@ -433,14 +601,23 @@ while running:
                 copy_buffer = None
             elif event.key == pygame.K_l:
                 load_tileset()
-            elif event.key == pygame.K_n:
-                new_map()
+            elif event.key == pygame.K_p:
+                # Load full project JSON (multiple stages)
+                load_project_json()
             elif event.key == pygame.K_s:
-                save_map_2dlist()
-            elif event.key == pygame.K_d:
-                save_map_dict()
-            elif event.key == pygame.K_o:
-                load_map()
+                # Save project JSON (main save key)
+                save_project_json()
+            elif event.key == pygame.K_k:
+                # alias save
+                save_project_json()
+            elif event.key == pygame.K_m:
+                # Select stage from loaded project (dropdown)
+                print('KEY M pressed: invoking select_stage_dialog()')
+                select_stage_dialog()
+            elif event.key == pygame.K_r:
+                prompt_rename_stage()
+            elif event.key == pygame.K_e:
+                prompt_resize_stage()
             # optional: quick-copy key (C) to copy currently selecting region (if any)
             elif event.key == pygame.K_c:
                 if copy_start and copy_end:
@@ -454,9 +631,22 @@ while running:
             if mx < PALETTE_PANEL_WIDTH:
                 palette_scroll += -event.y * (PALETTE_TILE_SIZE + PALETTE_SPACING)
             else:
-                # zoom stage, clamp zoom and adjust scroll to keep view stable
+                # smooth zooming: scale by a small factor per wheel step and keep mouse anchor
                 old_zoom = stage_zoom
-                stage_zoom = max(1, min(32, stage_zoom + event.y))
+                factor = 1.12 ** event.y
+                stage_zoom = max(0.5, min(16.0, stage_zoom * factor))
+                # keep mouse world coordinate stable (if inside stage)
+                if stage_rect.collidepoint(mx, my):
+                    local_x = mx - stage_rect.x
+                    local_y = my - stage_rect.y
+                    tile_px_old = TILE_SIZE * old_zoom
+                    tile_px_new = TILE_SIZE * stage_zoom
+                    # world (tile) coords at mouse before zoom
+                    world_x = (local_x - stage_scroll_x) / tile_px_old
+                    world_y = (local_y - stage_scroll_y) / tile_px_old
+                    # new scroll to keep same world_x under mouse
+                    stage_scroll_x = local_x - world_x * tile_px_new
+                    stage_scroll_y = local_y - world_y * tile_px_new
                 # clamp scroll to new sizes
                 stage_rect2, view_w2, view_h2, stage_w_px2, stage_h_px2 = compute_stage_metrics(screen.get_width(), screen.get_height())
                 min_x = min(0.0, view_w2 - stage_w_px2)
@@ -629,5 +819,9 @@ while running:
     pygame.display.flip()
     clock.tick(60)
 
+try:
+    root.destroy()
+except Exception:
+    pass
 pygame.quit()
 sys.exit()
