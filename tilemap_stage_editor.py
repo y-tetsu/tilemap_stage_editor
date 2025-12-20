@@ -41,7 +41,8 @@ palette_scroll = 0
 
 map_width, map_height = 32, 30
 map_data = []
-selected_tile = 0
+# -1 means no selection / empty. Start with no tile selected.
+selected_tile = -1
 
 stage_zoom = 3
 stage_scroll_x = 0.0   # negative or zero: offset applied when drawing tiles: draw_x = x*tile_px + stage_scroll_x
@@ -242,7 +243,8 @@ def load_tileset(path=None):
         for rx in range(cols):
             rect = pygame.Rect(rx * TILE_SIZE, ry * TILE_SIZE, TILE_SIZE, TILE_SIZE)
             tiles.append(tileset.subsurface(rect).copy())
-    selected_tile = 0
+    # keep no selection after loading tileset; user must click to select
+    selected_tile = -1
     print(f'Loaded tileset: {path} ({len(tiles)} tiles)')
     return True
 
@@ -308,6 +310,9 @@ def load_map(path=None):
 # fill unpainted (Flood fill but only fill -1 areas)
 def fill_unpainted(gx, gy):
     if not (0 <= gx < map_width and 0 <= gy < map_height):
+        return
+    # do nothing if no tile selected
+    if selected_tile is None or selected_tile < 0:
         return
     target = map_data[gy][gx]
     if target != -1:
@@ -428,6 +433,9 @@ def draw_palette(surface):
         surface.blit(hint, (PALETTE_PADDING, 36))
         return
 
+    # clamp palette scroll so we don't scroll past content
+    clamp_palette_scroll(surface.get_height())
+
     cols = PALETTE_COLS
     x0 = PALETTE_PADDING
     y0 = PALETTE_PADDING + palette_scroll
@@ -443,6 +451,20 @@ def draw_palette(surface):
         surface.blit(scaled, (px, py))
         if i == selected_tile:
             pygame.draw.rect(surface, (255,200,0), (px-2, py-2, PALETTE_TILE_SIZE+4, PALETTE_TILE_SIZE+4), 2)
+
+
+def clamp_palette_scroll(surface_h):
+    """Clamp `palette_scroll` so palette content does not scroll beyond its bounds."""
+    global palette_scroll
+    if not tiles:
+        palette_scroll = 0
+        return
+    cols = PALETTE_COLS
+    rows = (len(tiles) + cols - 1) // cols
+    content_h = PALETTE_PADDING + rows * (PALETTE_TILE_SIZE + PALETTE_SPACING)
+    visible_h = surface_h
+    min_scroll = min(0, visible_h - content_h)
+    palette_scroll = clamp(palette_scroll, min_scroll, 0)
 
 def draw_stage(surface):
     # compute metrics
@@ -599,6 +621,8 @@ while running:
                 paste_preview_active = False
                 paste_preview_pos = None
                 copy_buffer = None
+                # always clear tile selection on Esc
+                selected_tile = -1
             elif event.key == pygame.K_l:
                 load_tileset()
             elif event.key == pygame.K_p:
@@ -629,7 +653,10 @@ while running:
         elif event.type == pygame.MOUSEWHEEL:
             # palette scroll vs stage zoom
             if mx < PALETTE_PANEL_WIDTH:
-                palette_scroll += -event.y * (PALETTE_TILE_SIZE + PALETTE_SPACING)
+                # invert palette wheel direction per user's request
+                palette_scroll += event.y * (PALETTE_TILE_SIZE + PALETTE_SPACING)
+                # clamp after change
+                clamp_palette_scroll(screen.get_height())
             else:
                 # smooth zooming: scale by a small factor per wheel step and keep mouse anchor
                 old_zoom = stage_zoom
@@ -691,10 +718,14 @@ while running:
                                 gx = int((local_x - stage_scroll_x) / tile_px)
                                 gy = int((local_y - stage_scroll_y) / tile_px)
                                 if 0 <= gx < map_width and 0 <= gy < map_height:
-                                    if mods & pygame.KMOD_SHIFT:
-                                        fill_unpainted(gx, gy)
+                                    if selected_tile is None or selected_tile < 0:
+                                        # no tile selected -> cannot paint
+                                        pass
                                     else:
-                                        map_data[gy][gx] = selected_tile
+                                        if mods & pygame.KMOD_SHIFT:
+                                            fill_unpainted(gx, gy)
+                                        else:
+                                            map_data[gy][gx] = selected_tile
 
             elif event.button == 3:
                 right_down = True
@@ -777,7 +808,10 @@ while running:
                         gx = int((local_x - stage_scroll_x) / tile_px)
                         gy = int((local_y - stage_scroll_y) / tile_px)
                         if 0 <= gx < map_width and 0 <= gy < map_height:
-                            map_data[gy][gx] = selected_tile
+                                if selected_tile is None or selected_tile < 0:
+                                    pass
+                                else:
+                                    map_data[gy][gx] = selected_tile
                 if right_down and copy_selecting and stage_rect.collidepoint(mx, my):
                     # update selection end while right-button dragging
                     local_x = mx - stage_rect.x
