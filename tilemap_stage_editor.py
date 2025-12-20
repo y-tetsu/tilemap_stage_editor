@@ -669,8 +669,9 @@ def draw_help(surface):
     lines = [
         '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
         '[M] Select stage  [R] Rename stage  [E] Resize stage',
-        'Left: paint  Right: select/copy  Shift+Left: fill unpainted  Esc: cancel copy/preview',
-        '[C] Copy selection  LeftClick while preview: paste  MouseWheel: smooth zoom (stage) / scroll (palette)',
+        'Left: paint  Shift+Left: fill unpainted  Esc: cancel selection/preview',
+        'Right-drag (palette): select tile region  Right-drag (stage): select area to copy',
+        'LeftClick while preview: paste  MouseWheel: scroll (palette/stage)  Ctrl+MouseWheel: smooth zoom (stage)',
         'Ctrl+Z: Undo  Ctrl+Y: Redo'
     ]
     x = STAGE_OFFSET_X
@@ -745,13 +746,7 @@ while running:
                 prompt_rename_stage()
             elif event.key == pygame.K_e:
                 prompt_resize_stage()
-            # optional: quick-copy key (C) to copy currently selecting region (if any)
-            elif event.key == pygame.K_c:
-                if copy_start and copy_end:
-                    copy_buffer = copy_region(copy_start, copy_end)
-                    paste_preview_active = True
-                    paste_preview_pos = None
-                    print("Copied region:", len(copy_buffer), "rows x", len(copy_buffer[0]) if copy_buffer else 0, "cols")
+            # (C key removed — right-click selection handles copy)
 
         elif event.type == pygame.MOUSEWHEEL:
             # palette scroll vs stage zoom/scroll
