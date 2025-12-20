@@ -835,6 +835,10 @@ while running:
                                         # no tile selected -> cannot paint
                                         pass
                                     else:
+                                        # start of a paint action: snapshot once per mouse-down
+                                        if not painting_action_active:
+                                            push_undo()
+                                            painting_action_active = True
                                         if mods & pygame.KMOD_SHIFT:
                                             fill_unpainted(gx, gy)
                                         else:
@@ -877,6 +881,8 @@ while running:
             if event.button == 1:
                 left_down = False
                 dragging = None
+                # end painting action
+                painting_action_active = False
             elif event.button == 3:
                 right_down = False
                 # finish selection: either palette selection or stage selection
