@@ -688,35 +688,45 @@ while running:
                     print("Copied region:", len(copy_buffer), "rows x", len(copy_buffer[0]) if copy_buffer else 0, "cols")
 
         elif event.type == pygame.MOUSEWHEEL:
-            # palette scroll vs stage zoom
+            # palette scroll vs stage zoom/scroll
             if mx < PALETTE_PANEL_WIDTH:
                 # invert palette wheel direction per user's request
                 palette_scroll += event.y * (PALETTE_TILE_SIZE + PALETTE_SPACING)
                 # clamp after change
                 clamp_palette_scroll(screen.get_height())
             else:
-                # smooth zooming: scale by a small factor per wheel step and keep mouse anchor
-                old_zoom = stage_zoom
-                factor = 1.12 ** event.y
-                stage_zoom = max(0.5, min(16.0, stage_zoom * factor))
-                # keep mouse world coordinate stable (if inside stage)
-                if stage_rect.collidepoint(mx, my):
-                    local_x = mx - stage_rect.x
-                    local_y = my - stage_rect.y
-                    tile_px_old = TILE_SIZE * old_zoom
-                    tile_px_new = TILE_SIZE * stage_zoom
-                    # world (tile) coords at mouse before zoom
-                    world_x = (local_x - stage_scroll_x) / tile_px_old
-                    world_y = (local_y - stage_scroll_y) / tile_px_old
-                    # new scroll to keep same world_x under mouse
-                    stage_scroll_x = local_x - world_x * tile_px_new
-                    stage_scroll_y = local_y - world_y * tile_px_new
-                # clamp scroll to new sizes
-                stage_rect2, view_w2, view_h2, stage_w_px2, stage_h_px2 = compute_stage_metrics(screen.get_width(), screen.get_height())
-                min_x = min(0.0, view_w2 - stage_w_px2)
-                min_y = min(0.0, view_h2 - stage_h_px2)
-                stage_scroll_x = clamp(stage_scroll_x, min_x, 0.0)
-                stage_scroll_y = clamp(stage_scroll_y, min_y, 0.0)
+                # If Ctrl is held, perform smooth zoom anchored at mouse
+                if mods & pygame.KMOD_CTRL:
+                    old_zoom = stage_zoom
+                    factor = 1.12 ** event.y
+                    stage_zoom = max(0.5, min(16.0, stage_zoom * factor))
+                    # keep mouse world coordinate stable (if inside stage)
+                    if stage_rect.collidepoint(mx, my):
+                        local_x = mx - stage_rect.x
+                        local_y = my - stage_rect.y
+                        tile_px_old = TILE_SIZE * old_zoom
+                        tile_px_new = TILE_SIZE * stage_zoom
+                        # world (tile) coords at mouse before zoom
+                        world_x = (local_x - stage_scroll_x) / tile_px_old
+                        world_y = (local_y - stage_scroll_y) / tile_px_old
+                        # new scroll to keep same world_x under mouse
+                        stage_scroll_x = local_x - world_x * tile_px_new
+                        stage_scroll_y = local_y - world_y * tile_px_new
+                    # clamp scroll to new sizes
+                    stage_rect2, view_w2, view_h2, stage_w_px2, stage_h_px2 = compute_stage_metrics(screen.get_width(), screen.get_height())
+                    min_x = min(0.0, view_w2 - stage_w_px2)
+                    min_y = min(0.0, view_h2 - stage_h_px2)
+                    stage_scroll_x = clamp(stage_scroll_x, min_x, 0.0)
+                    stage_scroll_y = clamp(stage_scroll_y, min_y, 0.0)
+                else:
+                    # No Ctrl: use wheel to scroll vertically in stage area
+                    tile_px = TILE_SIZE * stage_zoom
+                    # move by one tile per wheel step (match palette direction/sign)
+                    stage_scroll_y += event.y * (tile_px + 0)
+                    # clamp vertical scroll
+                    stage_rect2, view_w2, view_h2, stage_w_px2, stage_h_px2 = compute_stage_metrics(screen.get_width(), screen.get_height())
+                    min_y = min(0.0, view_h2 - stage_h_px2)
+                    stage_scroll_y = clamp(stage_scroll_y, min_y, 0.0)
 
         elif event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:
