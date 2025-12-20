@@ -1,6 +1,7 @@
 import pygame
 import sys
 import json
+import copy
 import os
 from tkinter import Tk, filedialog, simpledialog, Toplevel, StringVar, OptionMenu, Button, Label
 
@@ -69,6 +70,12 @@ copy_end = None
 palette_selecting = False
 palette_select_start = None
 palette_select_end = None
+# Undo/Redo history
+UNDO_LIMIT = 100
+undo_stack = []
+redo_stack = []
+# track whether a painting action started so we snapshot only once per mouse-drag paint
+painting_action_active = False
 
 def select_stage_dialog():
     """Blocking stage selection using simpledialog.askstring (reliable).
@@ -144,6 +151,8 @@ def resize_current_stage(new_w, new_h):
     global map_data, map_width, map_height
     if map_data is None:
         return
+    # record undo before resizing
+    push_undo()
     old_h = len(map_data)
     old_w = len(map_data[0]) if old_h else 0
     new_data = [[-1 for _ in range(new_w)] for _ in range(new_h)]
@@ -332,6 +341,8 @@ def fill_unpainted(gx, gy):
     # do nothing if no tile selected
     if selected_tile is None or selected_tile < 0:
         return
+    # record undo before multi-tile change
+    push_undo()
     target = map_data[gy][gx]
     if target != -1:
         return
@@ -432,6 +443,8 @@ def paste_buffer_at(top_left_x, top_left_y):
     global copy_buffer
     if copy_buffer is None:
         return
+    # snapshot before applying paste
+    push_undo()
     for y, row in enumerate(copy_buffer):
         for x, val in enumerate(row):
             gx = top_left_x + x
@@ -502,6 +515,53 @@ def clamp_palette_scroll(surface_h):
     visible_h = surface_h
     min_scroll = min(0, visible_h - content_h)
     palette_scroll = clamp(palette_scroll, min_scroll, 0)
+
+
+def snapshot_map():
+    """Return a deep copy snapshot of current map state."""
+    return {
+        'map_data': copy.deepcopy(map_data),
+        'map_width': map_width,
+        'map_height': map_height,
+    }
+
+
+def push_undo():
+    """Push current map state onto undo stack and clear redo stack."""
+    global undo_stack, redo_stack
+    undo_stack.append(snapshot_map())
+    # clamp
+    if len(undo_stack) > UNDO_LIMIT:
+        undo_stack = undo_stack[-UNDO_LIMIT:]
+    redo_stack.clear()
+
+
+def do_undo():
+    global undo_stack, redo_stack, map_data, map_width, map_height
+    if not undo_stack:
+        print('Undo: nothing to undo')
+        return
+    current = snapshot_map()
+    redo_stack.append(current)
+    s = undo_stack.pop()
+    map_data = copy.deepcopy(s['map_data'])
+    map_width = s['map_width']
+    map_height = s['map_height']
+    print('Undo applied')
+
+
+def do_redo():
+    global undo_stack, redo_stack, map_data, map_width, map_height
+    if not redo_stack:
+        print('Redo: nothing to redo')
+        return
+    current = snapshot_map()
+    undo_stack.append(current)
+    s = redo_stack.pop()
+    map_data = copy.deepcopy(s['map_data'])
+    map_width = s['map_width']
+    map_height = s['map_height']
+    print('Redo applied')
 
 def draw_stage(surface):
     # compute metrics
@@ -610,7 +670,8 @@ def draw_help(surface):
         '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
         '[M] Select stage  [R] Rename stage  [E] Resize stage',
         'Left: paint  Right: select/copy  Shift+Left: fill unpainted  Esc: cancel copy/preview',
-        '[C] Copy selection  LeftClick while preview: paste  MouseWheel: smooth zoom (stage) / scroll (palette)'
+        '[C] Copy selection  LeftClick while preview: paste  MouseWheel: smooth zoom (stage) / scroll (palette)',
+        'Ctrl+Z: Undo  Ctrl+Y: Redo'
     ]
     x = STAGE_OFFSET_X
     y = surface.get_height() - 24*len(lines) - 10
@@ -660,6 +721,11 @@ while running:
                 copy_buffer = None
                 # always clear tile selection on Esc
                 selected_tile = -1
+            # Undo / Redo (Ctrl+Z / Ctrl+Y)
+            if mods & pygame.KMOD_CTRL and event.key == pygame.K_z:
+                do_undo()
+            if mods & pygame.KMOD_CTRL and event.key == pygame.K_y:
+                do_redo()
             elif event.key == pygame.K_l:
                 load_tileset()
             elif event.key == pygame.K_p:
