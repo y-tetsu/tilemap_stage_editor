@@ -65,6 +65,10 @@ paste_preview_active = False
 paste_preview_pos = None
 copy_start = None
 copy_end = None
+# palette selection state (right-drag in palette to select tile region)
+palette_selecting = False
+palette_select_start = None
+palette_select_end = None
 
 def select_stage_dialog():
     """Blocking stage selection using simpledialog.askstring (reliable).
@@ -89,6 +93,13 @@ def select_stage_dialog():
     map_data = [list(row) for row in m]
     map_height = len(map_data)
     map_width = len(map_data[0]) if map_height else 0
+    # reset view and temporary states to avoid remnants from previous stage
+    global stage_scroll_x, stage_scroll_y, paste_preview_active, paste_preview_pos, copy_buffer
+    stage_scroll_x = 0.0
+    stage_scroll_y = 0.0
+    paste_preview_active = False
+    paste_preview_pos = None
+    copy_buffer = None
     print('Switched to stage', current_stage)
 
 def rename_current_stage(new_name):
@@ -193,6 +204,13 @@ def load_project_json(path=None):
         map_data = [list(row) for row in m]
         map_height = len(map_data)
         map_width = len(map_data[0]) if map_height else 0
+        # reset view and temporary states to avoid remnants from previous stage
+        global stage_scroll_x, stage_scroll_y, paste_preview_active, paste_preview_pos, copy_buffer
+        stage_scroll_x = 0.0
+        stage_scroll_y = 0.0
+        paste_preview_active = False
+        paste_preview_pos = None
+        copy_buffer = None
     print('Loaded project', path, 'stages:', len(stage_names))
 
 
@@ -451,6 +469,25 @@ def draw_palette(surface):
         surface.blit(scaled, (px, py))
         if i == selected_tile:
             pygame.draw.rect(surface, (255,200,0), (px-2, py-2, PALETTE_TILE_SIZE+4, PALETTE_TILE_SIZE+4), 2)
+
+    # draw palette selection rectangle (if any)
+    try:
+        if palette_select_start and palette_select_end:
+            sx, sy = palette_select_start
+            ex, ey = palette_select_end
+            x0_idx, x1_idx = min(sx, ex), max(sx, ex)
+            y0_idx, y1_idx = min(sy, ey), max(sy, ey)
+            sel_x = x0 + x0_idx * (PALETTE_TILE_SIZE + PALETTE_SPACING)
+            sel_y = y0 + y0_idx * (PALETTE_TILE_SIZE + PALETTE_SPACING)
+            sel_w = (x1_idx - x0_idx + 1) * PALETTE_TILE_SIZE + (x1_idx - x0_idx) * PALETTE_SPACING
+            sel_h = (y1_idx - y0_idx + 1) * PALETTE_TILE_SIZE + (y1_idx - y0_idx) * PALETTE_SPACING
+            # translucent fill
+            s = pygame.Surface((int(sel_w), int(sel_h)), pygame.SRCALPHA)
+            s.fill((0,200,100,60))
+            surface.blit(s, (int(sel_x), int(sel_y)))
+            pygame.draw.rect(surface, (0,200,100), (int(sel_x)-1, int(sel_y)-1, int(sel_w)+2, int(sel_h)+2), 2)
+    except Exception:
+        pass
 
 
 def clamp_palette_scroll(surface_h):
@@ -729,8 +766,22 @@ while running:
 
             elif event.button == 3:
                 right_down = True
-                # start selection for copy if inside stage
-                if stage_rect.collidepoint(mx, my):
+                # start selection for copy if inside palette or stage
+                if mx < PALETTE_PANEL_WIDTH:
+                    # start palette selection (tile-region select)
+                    palette_selecting = True
+                    # compute tile indices under mouse
+                    cols = PALETTE_COLS
+                    px_idx = int((mx - PALETTE_PADDING) // (PALETTE_TILE_SIZE + PALETTE_SPACING))
+                    py_idx = int((my - PALETTE_PADDING - palette_scroll) // (PALETTE_TILE_SIZE + PALETTE_SPACING))
+                    px_idx = clamp(px_idx, 0, cols-1)
+                    py_idx = max(0, py_idx)
+                    palette_select_start = (px_idx, py_idx)
+                    palette_select_end = (px_idx, py_idx)
+                    # disable any existing paste preview while selecting
+                    paste_preview_active = False
+                    paste_preview_pos = None
+                elif stage_rect.collidepoint(mx, my):
                     local_x = mx - stage_rect.x
                     local_y = my - stage_rect.y
                     tile_px = TILE_SIZE * stage_zoom
@@ -752,8 +803,29 @@ while running:
                 dragging = None
             elif event.button == 3:
                 right_down = False
-                # finish selection -> copy buffer and enable paste preview
-                if copy_selecting and copy_start and copy_end:
+                # finish selection: either palette selection or stage selection
+                if palette_selecting and palette_select_start and palette_select_end:
+                    # build copy_buffer from palette tile indices
+                    sx, sy = palette_select_start
+                    ex, ey = palette_select_end
+                    x0, x1 = min(sx, ex), max(sx, ex)
+                    y0, y1 = min(sy, ey), max(sy, ey)
+                    cols = PALETTE_COLS
+                    buf = []
+                    for ry in range(y0, y1+1):
+                        row = []
+                        for rx in range(x0, x1+1):
+                            idx = ry * cols + rx
+                            if 0 <= idx < len(tiles):
+                                row.append(idx)
+                            else:
+                                row.append(-1)
+                        buf.append(row)
+                    copy_buffer = buf
+                    paste_preview_active = True
+                    paste_preview_pos = None
+                    print('Palette region copied:', x1-x0+1, 'x', y1-y0+1)
+                elif copy_selecting and copy_start and copy_end:
                     copy_buffer = copy_region(copy_start, copy_end)
                     paste_preview_active = True
                     # set initial preview position to where mouse currently is (if inside stage)
@@ -766,7 +838,11 @@ while running:
                         paste_preview_pos = (int(clamp(gx, 0, map_width-1)), int(clamp(gy, 0, map_height-1)))
                     else:
                         paste_preview_pos = None
+                # reset selection flags
                 copy_selecting = False
+                palette_selecting = False
+                palette_select_start = None
+                palette_select_end = None
 
         elif event.type == pygame.MOUSEMOTION:
             # dragging scrollbar handles
@@ -822,6 +898,14 @@ while running:
                     gx = int(clamp(gx, 0, map_width-1))
                     gy = int(clamp(gy, 0, map_height-1))
                     copy_end = (gx, gy)
+                # update palette selection while right-dragging in palette
+                if palette_selecting:
+                    cols = PALETTE_COLS
+                    px_idx = int((mx - PALETTE_PADDING) // (PALETTE_TILE_SIZE + PALETTE_SPACING))
+                    py_idx = int((my - PALETTE_PADDING - palette_scroll) // (PALETTE_TILE_SIZE + PALETTE_SPACING))
+                    px_idx = clamp(px_idx, 0, cols-1)
+                    py_idx = max(0, py_idx)
+                    palette_select_end = (px_idx, py_idx)
                 # update paste preview follow mouse (when active)
                 if paste_preview_active and copy_buffer is not None:
                     if stage_rect.collidepoint(mx, my):
