@@ -251,6 +251,40 @@ def save_project_json(path=None):
     except Exception as e:
         print('Failed to save project:', e)
 
+
+def new_project_json(path=None):
+    """Create a new project JSON file using current map as initial stage.
+    Prompts for save location if `path` is None."""
+    global project, project_path, stage_names, current_stage, map_data, map_width, map_height
+    if path is None:
+        path = save_file_dialog_json()
+    if not path:
+        return
+    # ensure we have a map to store; if empty, initialize a small map
+    if not map_data:
+        # create a default empty map
+        map_w = map_width or 32
+        map_h = map_height or 30
+        initial_map = [[-1 for _ in range(map_w)] for _ in range(map_h)]
+    else:
+        initial_map = [list(row) for row in map_data]
+
+    project = {
+        'maps': {
+            'stage0': initial_map
+        },
+        'initial_map': 'stage0'
+    }
+    try:
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(project, f, indent=2, ensure_ascii=False)
+        project_path = path
+        stage_names = list(project['maps'].keys())
+        current_stage = project.get('initial_map')
+        print('Created new project at', path)
+    except Exception as e:
+        print('Failed to create new project:', e)
+
 # --- Tile / map helpers ---
 def load_tileset(path=None):
     global tileset, tiles, selected_tile
@@ -668,7 +702,7 @@ def draw_stage(surface):
 def draw_help(surface):
     lines = [
         '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
-        '[M] Select stage  [R] Rename stage  [E] Resize stage',
+        '[M] Select stage  [R] Rename stage  [E] Resize stage  Ctrl+N: New project',
         'Left: paint  Shift+Left: fill unpainted  Esc: cancel selection/preview',
         'Right-drag (palette): select tile region  Right-drag (stage): select area to copy',
         'LeftClick while preview: paste  MouseWheel: scroll (palette/stage)  Ctrl+MouseWheel: smooth zoom (stage)',
@@ -727,6 +761,9 @@ while running:
                 do_undo()
             if mods & pygame.KMOD_CTRL and event.key == pygame.K_y:
                 do_redo()
+            # New project (Ctrl+N)
+            if mods & pygame.KMOD_CTRL and event.key == pygame.K_n:
+                new_project_json()
             elif event.key == pygame.K_l:
                 load_tileset()
             elif event.key == pygame.K_p:
