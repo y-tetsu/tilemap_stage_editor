@@ -244,12 +244,69 @@ def save_project_json(path=None):
                 os.replace(path, bak)
             except Exception:
                 pass
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(project, f, indent=2, ensure_ascii=False)
+        write_project_pretty(project, path)
         project_path = path
         print('Saved project to', path)
     except Exception as e:
         print('Failed to save project:', e)
+
+
+def write_project_pretty(project_obj, path):
+    """Write project JSON to `path` with nicely aligned numeric columns for maps.
+
+    Each map (2D list) is written so that x increases to the right (normal row order),
+    and numbers in the inner arrays are padded to a uniform width per-map for readability.
+    Other project keys are written using regular JSON formatting.
+    """
+    # prepare non-map keys and write manually so we can format maps specially
+    maps = project_obj.get('maps', {})
+    other = {k: v for k, v in project_obj.items() if k != 'maps'}
+
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('{' + '\n')
+        # write other keys first
+        if other:
+            other_text = json.dumps(other, ensure_ascii=False, indent=2)
+            # remove surrounding braces to insert inside our outer object
+            if other_text.startswith('{') and other_text.endswith('}'):
+                inner = other_text[1:-1].strip()
+                if inner:
+                    # write inner with indentation of two spaces
+                    for line in inner.splitlines():
+                        f.write('  ' + line + '\n')
+        # write maps key
+        if maps:
+            if other:
+                f.write(',\n')
+            f.write('  "maps": {\n')
+            first_stage = True
+            for stage_name, grid in maps.items():
+                if not first_stage:
+                    f.write(',\n')
+                first_stage = False
+                # compute max width for numbers in this grid
+                maxw = 1
+                for row in grid:
+                    for val in row:
+                        s = str(val)
+                        if len(s) > maxw:
+                            maxw = len(s)
+
+                f.write(f'    "{stage_name}": [\n')
+                # write each row as aligned array
+                for ri, row in enumerate(grid):
+                    parts = []
+                    for val in row:
+                        parts.append(str(val).rjust(maxw))
+                    row_text = ', '.join(parts)
+                    comma = ',' if ri < len(grid) - 1 else ''
+                    f.write(f'      [{row_text}]{comma}\n')
+                f.write('    ]')
+            f.write('\n  }\n')
+        else:
+            # no maps
+            f.write('\n')
+        f.write('}')
 
 
 def new_project_json(path=None):
