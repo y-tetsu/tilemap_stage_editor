@@ -285,6 +285,71 @@ def new_project_json(path=None):
     except Exception as e:
         print('Failed to create new project:', e)
 
+
+def add_new_stage(name=None, w=None, h=None, make_current=True):
+    """Add a new stage to `project`. If `project` is None, create a minimal project container first."""
+    global project, project_path, stage_names, current_stage, map_data, map_width, map_height
+    if project is None:
+        project = {'maps': {}, 'initial_map': None}
+    if 'maps' not in project:
+        project['maps'] = {}
+
+    if name is None:
+        # generate a unique default name
+        idx = 0
+        while True:
+            candidate = f'stage{idx}'
+            if candidate not in project['maps']:
+                name = candidate
+                break
+            idx += 1
+
+    if name in project['maps']:
+        print('Stage already exists:', name)
+        return False
+
+    if w is None or h is None:
+        w = map_width or 32
+        h = map_height or 30
+
+    # create empty stage data (-1)
+    new_map_data = [[-1 for _ in range(w)] for _ in range(h)]
+    project['maps'][name] = new_map_data
+    stage_names = list(project['maps'].keys())
+    if project.get('initial_map') is None:
+        project['initial_map'] = name
+
+    if make_current:
+        current_stage = name
+        map_data = [list(row) for row in new_map_data]
+        map_width = w
+        map_height = h
+        # reset view and temp states
+        global stage_scroll_x, stage_scroll_y, paste_preview_active, paste_preview_pos, copy_buffer
+        stage_scroll_x = 0.0
+        stage_scroll_y = 0.0
+        paste_preview_active = False
+        paste_preview_pos = None
+        copy_buffer = None
+    print('Added new stage:', name)
+    return True
+
+
+def add_new_stage_dialog():
+    """Prompt user for stage name and size, then add stage."""
+    # ask for name
+    name = simpledialog.askstring('Add Stage', 'Stage name (unique):')
+    if not name:
+        return
+    if project and name in project.get('maps', {}):
+        print('Stage name already exists:', name)
+        return
+    w = simpledialog.askinteger('Add Stage', 'Width:', initialvalue=map_width or 32, minvalue=1)
+    h = simpledialog.askinteger('Add Stage', 'Height:', initialvalue=map_height or 30, minvalue=1)
+    if not w or not h:
+        return
+    add_new_stage(name, w, h, make_current=True)
+
 # --- Tile / map helpers ---
 def load_tileset(path=None):
     global tileset, tiles, selected_tile
@@ -702,7 +767,7 @@ def draw_stage(surface):
 def draw_help(surface):
     lines = [
         '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
-        '[M] Select stage  [R] Rename stage  [E] Resize stage  Ctrl+N: New project',
+        '[M] Select stage  [R] Rename stage  [E] Resize stage  Ctrl+N: New project  N: Add stage',
         'Left: paint  Shift+Left: fill unpainted  Esc: cancel selection/preview',
         'Right-drag (palette): select tile region  Right-drag (stage): select area to copy',
         'LeftClick while preview: paste  MouseWheel: scroll (palette/stage)  Ctrl+MouseWheel: smooth zoom (stage)',
@@ -764,6 +829,9 @@ while running:
             # New project (Ctrl+N)
             if mods & pygame.KMOD_CTRL and event.key == pygame.K_n:
                 new_project_json()
+            # Add new stage (N without Ctrl)
+            if event.key == pygame.K_n and not (mods & pygame.KMOD_CTRL):
+                add_new_stage_dialog()
             elif event.key == pygame.K_l:
                 load_tileset()
             elif event.key == pygame.K_p:
