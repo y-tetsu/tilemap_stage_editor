@@ -431,6 +431,43 @@ def load_tileset(path=None):
     print(f'Loaded tileset: {path} ({len(tiles)} tiles)')
     return True
 
+
+def export_stage_png(path=None):
+    global map_data, map_width, map_height, tiles
+
+    if not tiles:
+        print("Tileset not loaded")
+        return
+
+    if path is None:
+        path = filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png")]
+        )
+
+    if not path:
+        return
+
+    # 出力画像サイズ
+    img_w = map_width * TILE_SIZE
+    img_h = map_height * TILE_SIZE
+
+    surface = pygame.Surface((img_w, img_h), pygame.SRCALPHA)
+
+    for y in range(map_height):
+        for x in range(map_width):
+            tid = map_data[y][x]
+            if 0 <= tid < len(tiles):
+                surface.blit(
+                    tiles[tid],
+                    (x * TILE_SIZE, y * TILE_SIZE)
+                )
+
+    pygame.image.save(surface, path)
+
+    print("Exported PNG:", path)
+
+
 def new_map(w=None, h=None):
     global map_width, map_height, map_data, stage_scroll_x, stage_scroll_y
     if w is None or h is None:
@@ -823,7 +860,7 @@ def draw_stage(surface):
 
 def draw_help(surface):
     lines = [
-        '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)',
+        '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)  [O] Output stage PNG',
         '[M] Select stage  [R] Rename stage  [E] Resize stage  Ctrl+N: New project  N: Add stage',
         'Left: paint  Shift+Left: fill unpainted  Esc: cancel selection/preview',
         'Right-drag (palette): select tile region  Right-drag (stage): select area to copy',
@@ -908,6 +945,8 @@ while running:
                 prompt_rename_stage()
             elif event.key == pygame.K_e:
                 prompt_resize_stage()
+            elif event.key == pygame.K_o:
+                export_stage_png()
             # (C key removed — right-click selection handles copy)
 
         elif event.type == pygame.MOUSEWHEEL:
