@@ -76,6 +76,8 @@ undo_stack = []
 redo_stack = []
 # track whether a painting action started so we snapshot only once per mouse-drag paint
 painting_action_active = False
+# help
+help_active = True
 
 def select_stage_dialog():
     """Blocking stage selection using simpledialog.askstring (reliable).
@@ -859,13 +861,15 @@ def draw_stage(surface):
     return stage_rect, view_w, view_h, stage_w_px, stage_h_px, h_rect, v_rect
 
 def draw_help(surface):
+    if not help_active:
+        return
     lines = [
         '[L] Load tileset  [P] Load project  [S] Save project  [K] Save (alias)  [O] Output stage PNG',
         '[M] Select stage  [R] Rename stage  [E] Resize stage  Ctrl+N: New project  N: Add stage',
         'Left: paint  Shift+Left: fill unpainted  Esc: cancel selection/preview',
         'Right-drag (palette): select tile region  Right-drag (stage): select area to copy',
         'LeftClick while preview: paste  MouseWheel: scroll (palette/stage)  Ctrl+MouseWheel: smooth zoom (stage)',
-        'Ctrl+Z: Undo  Ctrl+Y: Redo'
+        'Ctrl+Z: Undo  Ctrl+Y: Redo  [H]: show/hidden help'
     ]
     x = STAGE_OFFSET_X
     y = surface.get_height() - 24*len(lines) - 10
@@ -947,6 +951,8 @@ while running:
                 prompt_resize_stage()
             elif event.key == pygame.K_o:
                 export_stage_png()
+            elif event.key == pygame.K_h:
+                help_active = not help_active
             # (C key removed — right-click selection handles copy)
 
         elif event.type == pygame.MOUSEWHEEL:
