@@ -157,7 +157,7 @@ def resize_current_stage(new_w, new_h):
     push_undo()
     old_h = len(map_data)
     old_w = len(map_data[0]) if old_h else 0
-    new_data = [[-1 for _ in range(new_w)] for _ in range(new_h)]
+    new_data = [[0 for _ in range(new_w)] for _ in range(new_h)]
     for y in range(min(old_h, new_h)):
         for x in range(min(old_w, new_w)):
             new_data[y][x] = map_data[y][x]
@@ -324,7 +324,7 @@ def new_project_json(path=None):
         # create a default empty map
         map_w = map_width or 32
         map_h = map_height or 30
-        initial_map = [[-1 for _ in range(map_w)] for _ in range(map_h)]
+        initial_map = [[0 for _ in range(map_w)] for _ in range(map_h)]
     else:
         initial_map = [list(row) for row in map_data]
 
@@ -371,8 +371,8 @@ def add_new_stage(name=None, w=None, h=None, make_current=True):
         w = map_width or 32
         h = map_height or 30
 
-    # create empty stage data (-1)
-    new_map_data = [[-1 for _ in range(w)] for _ in range(h)]
+    # create empty stage data (0)
+    new_map_data = [[0 for _ in range(w)] for _ in range(h)]
     project['maps'][name] = new_map_data
     stage_names = list(project['maps'].keys())
     if project.get('initial_map') is None:
@@ -478,7 +478,7 @@ def new_map(w=None, h=None):
     if w is None or h is None:
         return
     map_width, map_height = w, h
-    map_data = [[-1 for _ in range(w)] for _ in range(h)]
+    map_data = [[0 for _ in range(w)] for _ in range(h)]
     stage_scroll_x = 0.0
     stage_scroll_y = 0.0
 
